@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'authenticate.apps.AuthenticateConfig',
 
     'drf_spectacular',
+    'rest_framework',
 
     'rest_framework_simplejwt.token_blacklist'
 

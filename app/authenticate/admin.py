@@ -11,8 +11,8 @@ class CompanyAdmin(admin.ModelAdmin):
 
 @admin.register(Storage)
 class StorageAdmin(admin.ModelAdmin):
-    list_display = ('id', 'address', 'company_id', 'company__title')
-    list_filter = ('company_id',)
+    list_display = ('id', 'address', 'company')
+    list_filter = ('company',)
     search_fields = ('address', 'company__title')
 
 

@@ -5,7 +5,7 @@ from django.shortcuts import render
 from drf_spectacular.utils import extend_schema, OpenApiRequest
 from rest_framework import status
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer, \
@@ -49,6 +49,7 @@ User = get_user_model()
     )
 )
 class CreateUserView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
@@ -243,7 +244,8 @@ class GetStorageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        storages = Storage.objects.all()
+        storages = Storage.objects.filter(company_id=request.user.company_id)
+
         serializer = StorageSerializer(storages, many=True)
 
         return Response(serializer.data)
