@@ -50,6 +50,7 @@ User = get_user_model()
 )
 class CreateUserView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
