@@ -1,20 +1,58 @@
 from django.contrib import admin
 
-from .models import User, Company, Storage
+from .models import User, Company, Storage, Supplier, Supply, Product, SupplyProduct
 
 
+# ______________________Company___________________________
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
     list_display = ('id', 'title', 'inn')
     search_fields = ('title',)
 
 
+# ______________________Storage___________________________
 @admin.register(Storage)
 class StorageAdmin(admin.ModelAdmin):
     list_display = ('id', 'address', 'company')
     list_filter = ('company',)
     search_fields = ('address', 'company__title')
 
+
+# ______________________Supplier___________________________
+@admin.register(Supplier)
+class SupplierAdmin(admin.ModelAdmin):
+    list_display = ('id', 'company', 'title', 'inn')
+    list_filter = ('company',)
+    search_fields = ('title', 'inn', 'company__title')
+
+
+# _______________________SupplyProduct__________________________
+
+class SupplyProductInline(admin.TabularInline):
+    model = SupplyProduct
+    extra = 1
+    autocomplete_fields = ('product',)
+
+
+# __________________________Supply_____________________________
+@admin.register(Supply)
+class SupplyAdmin(admin.ModelAdmin):
+    list_display = ('id', 'supplier_id', 'delivery_date')
+    list_filter = ('delivery_date',)
+    search_fields = ('supplier_id', )
+    readonly_fields = ('delivery_date',)
+    inlines = (SupplyProductInline,)
+
+
+# ______________________Product___________________________
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'purchase_price', 'sale_price', 'quantity', 'storage_id')
+    list_filter = ('title',)
+    search_fields = ('title', 'storage_id')
+    readonly_fields = ('quantity',)
+
+# __________________________User___________________________
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):

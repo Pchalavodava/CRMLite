@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -27,6 +28,8 @@ class UserManager(BaseUserManager):
         return self.create_user(email, password=password, **extra_fields)
 
 
+# ______________________Company___________________________
+
 class Company(models.Model):
     title = models.CharField(verbose_name="Company name", max_length=100)
     inn = models.CharField(unique=True, verbose_name="Taxpayer personal identification number", max_length=20)
@@ -39,13 +42,87 @@ class Company(models.Model):
         return self.title
 
 
+# ______________________Supplier___________________________
+class Supplier(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="suppliers")
+    title = models.CharField(verbose_name="Supplier name", max_length=100)
+    inn = models.CharField(verbose_name="Taxpayer personal identification number", max_length=20)
+
+    class Meta:
+        verbose_name = "Supplier"
+        verbose_name_plural = "Suppliers"
+
+        constraints = [models.UniqueConstraint(fields=["company", "inn"], name="unique_supplier_inn_per_company")]
+
+    def __str__(self):
+        return self.title
+
+
+# _________________________Supply______________________
+class Supply(models.Model):
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="supplies", db_column="supplier_id")
+    delivery_date = models.DateTimeField(default=timezone.now)
+    products = models.ManyToManyField("Product", through="SupplyProduct", related_name="supplies")
+
+    class Meta:
+        verbose_name = "Supply"
+        verbose_name_plural = "Supplies"
+        ordering = ["delivery_date"]
+
+    def __str__(self):
+        return f"Supply {self.pk} - {self.delivery_date}"
+
+
+# __________________Storage_________________________
+
 class Storage(models.Model):
     address = models.CharField(verbose_name="Company address", max_length=200)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="Storage")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="storages")
+
+    class Meta:
+        verbose_name = "Storage"
+        verbose_name_plural = "Storages"
 
     def __str__(self):
         return f"{self.company} - storage address {self.address}"
 
+
+# __________________________Product_______________________
+class Product(models.Model):
+    title = models.CharField(verbose_name="Product name", max_length=50)
+    purchase_price = models.DecimalField(max_digits=8, decimal_places=2)
+    sale_price = models.DecimalField(max_digits=8, decimal_places=2)
+    quantity = models.PositiveIntegerField(default=0)
+    storage = models.ForeignKey(Storage, on_delete=models.PROTECT, related_name="products")
+
+    class Meta:
+        verbose_name = "Product"
+        verbose_name_plural = "Products"
+
+    def __str__(self):
+        return f"{self.title} - purchase prise {self.purchase_price}"
+
+
+# __________________________Supply product_______________________
+class SupplyProduct(models.Model):
+    supply = models.ForeignKey(Supply, on_delete=models.PROTECT, related_name="supply_products")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="product_ids")
+    quantity = models.PositiveIntegerField()
+
+    class Meta:
+        verbose_name = "Supply product"
+        verbose_name_plural = "Supply products"
+
+        constraints = [
+            models.UniqueConstraint(fields=["supply", "product"], name="unique_product_per_supply"),
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="supply_product_quantity_gt_zero")
+        ]
+
+    def __str__(self):
+        return f"Product {self.product} - quantity {self.quantity}"
+
+
+# ____________________User_____________________
 
 class User(AbstractUser):
     # username = None

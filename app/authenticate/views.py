@@ -1,6 +1,7 @@
 import datetime
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.shortcuts import render
 from drf_spectacular.utils import extend_schema, OpenApiRequest
 from rest_framework import status
@@ -12,9 +13,12 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
     TokenBlacklistSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenBlacklistView
 
-from .serializers import UserSerializer, CompanyCreateSerializer, CompanySerializer, StorageSerializer
+from .serializers import UserSerializer, CompanyCreateSerializer, CompanySerializer, StorageSerializer, \
+    SupplierCreateSerializer, SupplierSerializer, ProductSerializer, SupplySerializer, SupplyListSerializer, \
+    AttachUserToCompanySerializer
 from rest_framework.permissions import IsAuthenticated
-from .models import Company, Storage
+from .permissions import HasCompanyPermission
+from .models import Company, Storage, Supplier, Product, Supply
 
 User = get_user_model()
 
@@ -134,7 +138,7 @@ class CreateCompanyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = CompanyCreateSerializer( data=request.data, context={"request": request})
+        serializer = CompanyCreateSerializer(data=request.data, context={"request": request})
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -206,6 +210,31 @@ class DeleteCompanyView(APIView):
         company.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(
+    summary="Attach user to company",
+    description="Attach user to company",
+    tags=["Companies"],
+    responses={200: None, 404: None, 403: None, 400: None}
+)
+class AttachUserToCompanyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, user_id):
+        if not request.user.is_company_owner or not request.user.company_id:
+            return Response({"detail": "Only company owner can attach users"}, status=status.HTTP_403_FORBIDDEN)
+
+        user = get_object_or_404(User, pk=user_id)
+
+        serializer = AttachUserToCompanySerializer(user, data={}, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {"message": "User successfully attached to your company", "user_id": user.id,
+             "company_id": user.company_id}, status=status.HTTP_200_OK)
 
 
 @extend_schema(
@@ -297,3 +326,213 @@ class DeleteStorageView(APIView):
         storage.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ______________________Supplier___________________________
+@extend_schema(
+    description="Create supplier for company",
+    summary="Create supplier",
+    tags=["Suppliers"],
+    request=SupplierCreateSerializer,
+    responses={201: SupplierSerializer}
+)
+class CreateSupplierView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def post(self, request):
+        serializer = SupplierCreateSerializer(data=request.data, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+        supplier = serializer.save()
+
+        return Response(SupplierSerializer(supplier).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    description="Get suppliers by user",
+    summary="Get suppliers",
+    tags=["Suppliers"],
+    responses={200: SupplierSerializer(many=True)}
+)
+class GetSuppliersView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request):
+        company_id = request.user.company_id
+        suppliers = Supplier.objects.filter(company_id=company_id)
+
+        serializer = SupplierSerializer(suppliers, many=True)
+
+        return Response(serializer.data)
+
+
+@extend_schema(
+    description="Update supplier details",
+    summary="Update supplier details",
+    tags=["Suppliers"],
+    request=SupplierSerializer,
+    responses={200: SupplierSerializer}
+)
+class UpdateSupplierView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def patch(self, request, id):
+        supplier = get_object_or_404(Supplier, pk=id, company_id=request.user.company_id)
+
+        serializer = SupplierSerializer(supplier, data=request.data, partial=True)
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+
+@extend_schema(
+    description="Delete supplier",
+    summary="Delete supplier",
+    tags=["Suppliers"],
+    request=None,
+    responses={204: None, 403: None, 404: None}
+)
+class DeleteSupplierView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def delete(self, request, id):
+        supplier = get_object_or_404(Supplier, pk=id, company_id=request.user.company_id)
+
+        supplier.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ______________________Product___________________________
+@extend_schema(
+    description="Get products",
+    summary="Get products",
+    tags=["Products"],
+    responses={200: ProductSerializer(many=True), 403: None}
+)
+class GetProductListView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request):
+        products = Product.objects.filter(storage__company_id=request.user.company_id)
+
+        serializer = ProductSerializer(products, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    description="Create product",
+    summary="Create product",
+    tags=["Products"],
+    request=ProductSerializer,
+    responses={201: ProductSerializer, 400: None, 403: None}
+)
+class CreateProductView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def post(self, request):
+        serializer = ProductSerializer(data=request.data, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    description="Get product",
+    summary="Get product",
+    tags=["Products"],
+    responses={200: ProductSerializer, 403: None, 404: None}
+)
+class GetProductView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request, id):
+        product = get_object_or_404(Product, pk=id, storage__company_id=request.user.company_id)
+
+        serializer = ProductSerializer(product)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    description="Update product",
+    summary="Update product",
+    tags=["Products"],
+    request=ProductSerializer,
+    responses={200: ProductSerializer, 400: None, 403: None, 404: None}
+)
+class UpdateProductView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def patch(self, request, id):
+        product = get_object_or_404(Product, pk=id, storage__company_id=request.user.company_id)
+
+        serializer = ProductSerializer(product, data=request.data, partial=True, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    description="Delete product",
+    summary="Delete product",
+    tags=["Products"],
+    request=None,
+    responses={204: None, 403: None, 404: None}
+)
+class DeleteProductView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def delete(self, request, id):
+        product = get_object_or_404(Product, pk=id, storage__company_id=request.user.company_id)
+
+        product.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ______________________Supply___________________________
+
+@extend_schema(
+    summary="Create supply",
+    description="Create a supply and increase product quantities",
+    tags=["Supplies"],
+    request=SupplySerializer,
+)
+class CreateSupplyView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = SupplySerializer(data=request.data, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+        supply = serializer.save()
+
+        return Response({"message": "Supply created successfully", "supply_id": supply.id},
+                        status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    summary="Get supplies",
+    description="Get supplies",
+    tags=["Supplies"],
+    responses={200: SupplyListSerializer(many=True)}
+)
+class SupplyListView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request):
+        supplies = Supply.objects.filter(supplier__company_id=request.user.company_id).select_related(
+            "supplier").prefetch_related("supply_products__product")
+
+        serializer = SupplyListSerializer(supplies, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
