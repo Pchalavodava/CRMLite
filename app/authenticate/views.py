@@ -4,8 +4,12 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import ProtectedError
 from django.shortcuts import render
-from drf_spectacular.utils import extend_schema, OpenApiRequest
+from django.utils.dateparse import parse_date
+from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiRequest, OpenApiParameter
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.response import Response
@@ -16,10 +20,11 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import UserSerializer, CompanyCreateSerializer, CompanySerializer, StorageSerializer, \
     SupplierCreateSerializer, SupplierSerializer, ProductSerializer, SupplySerializer, SupplyListSerializer, \
-    AttachUserToCompanySerializer, SaleCreateSerializer
+    AttachUserToCompanySerializer, SaleCreateSerializer, SaleListSerializer, SaleUpdateSerializer
 from rest_framework.permissions import IsAuthenticated
 from .permissions import HasCompanyPermission
-from .models import Company, Storage, Supplier, Product, Supply
+from .models import Company, Storage, Supplier, Product, Supply, Sale
+from .pagination import CustomPagination
 
 User = get_user_model()
 
@@ -157,7 +162,7 @@ class GetCompanyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, id):
-        company = get_object_or_404(Company, pk=id)
+        company = get_object_or_404(Company, pk=id, users__id=request.user.id)
 
         serializer = CompanySerializer(company)
 
@@ -199,6 +204,7 @@ class UpdateCompanyView(APIView):
 class DeleteCompanyView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def delete(self, request, id):
         company = get_object_or_404(Company, pk=id)
 
@@ -206,9 +212,11 @@ class DeleteCompanyView(APIView):
             return Response({"detail": f"Only the company owner can delete {company.title} company"},
                             status=status.HTTP_403_FORBIDDEN)
 
-        company.users.filter(is_company_owner=True).update(is_company_owner=False)
-
-        company.delete()
+        try:
+            company.users.filter(is_company_owner=True).update(is_company_owner=False)
+            company.delete()
+        except ProtectedError:
+            return Response({"detail": "Company can't be deleted"}, status=status.HTTP_409_CONFLICT)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -236,6 +244,31 @@ class AttachUserToCompanyView(APIView):
         return Response(
             {"message": "User successfully attached to your company", "user_id": user.id,
              "company_id": user.company_id}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary="Get company employees",
+    description="Get company employees",
+    tags=["Companies"],
+    responses={200: UserSerializer(many=True), 403: None}
+)
+class GetCompanyEmployeesView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request):
+        user = request.user
+
+        if not user.is_company_owner or not user.company_id:
+            return Response({"detail": "Only company owner can view employees"}, status=status.HTTP_403_FORBIDDEN)
+
+        employees = User.objects.filter(company_id=user.company_id, is_company_owner=False).order_by("id")
+
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(employees, request, view=self)
+
+        serializer = UserSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
 
 @extend_schema(
@@ -277,9 +310,12 @@ class GetStorageView(APIView):
     def get(self, request):
         storages = Storage.objects.filter(company_id=request.user.company_id)
 
-        serializer = StorageSerializer(storages, many=True)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(storages, request, view=self)
 
-        return Response(serializer.data)
+        serializer = StorageSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
 
 @extend_schema(
@@ -324,7 +360,10 @@ class DeleteStorageView(APIView):
             return Response({"detail": "Only company owner can delete this storage"},
                             status=status.HTTP_403_FORBIDDEN)
 
-        storage.delete()
+        try:
+            storage.delete()
+        except ProtectedError:
+            return Response({"detail": "You can't delete storage with products"}, status=status.HTTP_409_CONFLICT)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -362,9 +401,12 @@ class GetSuppliersView(APIView):
         company_id = request.user.company_id
         suppliers = Supplier.objects.filter(company_id=company_id)
 
-        serializer = SupplierSerializer(suppliers, many=True)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(suppliers, request, view=self)
 
-        return Response(serializer.data)
+        serializer = SupplierSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
 
 @extend_schema(
@@ -423,9 +465,12 @@ class GetProductListView(APIView):
     def get(self, request):
         products = Product.objects.filter(storage__company_id=request.user.company_id)
 
-        serializer = ProductSerializer(products, many=True)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(products, request, view=self)
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        serializer = ProductSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
 
 @extend_schema(
@@ -542,9 +587,12 @@ class SupplyListView(APIView):
         supplies = Supply.objects.filter(supplier__company_id=request.user.company_id).select_related(
             "supplier").prefetch_related("supply_products__product")
 
-        serializer = SupplyListSerializer(supplies, many=True)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(supplies, request, view=self)
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        serializer = SupplyListSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
 
 # ______________________________Sale___________________________________
@@ -564,6 +612,101 @@ class CreateSaleView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        serializer.save(company=request.user.company)
+        serializer.save()
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    summary="Get sales",
+    description="Get sales",
+    tags=["Sales"],
+    responses={200: SaleListSerializer(many=True)},
+    parameters=[OpenApiParameter("date_from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+                OpenApiParameter("date_to", OpenApiTypes.DATE, OpenApiParameter.QUERY)]
+)
+class SaleListView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def get(self, request):
+        sales = Sale.objects.filter(company_id=request.user.company_id).order_by("-sale_date")
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        parsed_date_from = parse_date(date_from) if date_from else None
+        parsed_date_to = parse_date(date_to) if date_to else None
+
+        if date_from and parsed_date_from is None:
+            raise ValidationError({"date_from": "Date_from must be in the format YYYY-MM-DD (example 2026-10-02)"})
+        if date_to and parsed_date_to is None:
+            raise ValidationError({"date_to": "Date_to must be in the format YYYY-MM-DD (example 2026-10-02)"})
+        if parsed_date_from and parsed_date_to:
+            if parsed_date_from > parsed_date_to:
+                raise ValidationError({"date_from": "Date_from must be earlier than or equal to date_to"})
+
+        if parsed_date_from:
+            sales = sales.filter(sale_date__gte=parsed_date_from)
+
+        if parsed_date_to:
+            sales = sales.filter(sale_date__lt=parsed_date_to + datetime.timedelta(days=1))
+
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(sales, request, view=self)
+
+        serializer = SaleListSerializer(page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
+
+
+@extend_schema(
+    summary="Update sale",
+    description="Update sale",
+    tags=["Sales"],
+    request=SaleUpdateSerializer,
+    responses={200: SaleListSerializer}
+)
+class UpdateSaleView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    def patch(self, request, id):
+        sale = get_object_or_404(Sale, pk=id, company_id=request.user.company_id)
+
+        serializer = SaleUpdateSerializer(sale, data=request.data, partial=True)
+
+        serializer.is_valid(raise_exception=True)
+
+        sale_date = serializer.validated_data.get("sale_date")
+
+        if sale_date and sale_date > timezone.now():
+            raise ValidationError({"sale_date": "Sale date cannot be in the future"})
+
+        serializer.save()
+
+        return Response(SaleListSerializer(sale).data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary="Delete sale",
+    description="Delete sale and return amount of products to storage",
+    tags=["Sales"],
+    responses={204: None}
+)
+class DeleteSaleView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    @transaction.atomic
+    def delete(self, request, id):
+        sale = get_object_or_404(Sale.objects.select_for_update(), pk=id, company_id=request.user.company_id)
+
+        product_sales = list(sale.product_sales.select_related("product").all())
+
+        for item in product_sales:
+            product = Product.objects.select_for_update().get(pk=item.product_id)
+
+            product.quantity += item.quantity
+            product.save(update_fields=["quantity"])
+
+        sale.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

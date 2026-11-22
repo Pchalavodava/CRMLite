@@ -84,7 +84,6 @@ class SupplierSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        # fields = "__all__"
         fields = ("title", "purchase_price", "sale_price", "storage", "quantity")
         read_only_fields = ("quantity",)
 
@@ -109,7 +108,6 @@ class SupplyProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SupplyProduct
-        # fields = ("product", "quantity")
         fields = ("id", "quantity")
 
     def validate_quantity(self, quantity):
@@ -133,7 +131,6 @@ class SupplySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Supply
-        # fields = ("supplier", "products")
         fields = ("supplier_id", "products")
 
     def validate_supplier_id(self, supplier):
@@ -182,7 +179,6 @@ class SupplyProductListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SupplyProduct
-        # fields = ("product", "product_title", "quantity")
         fields = ("product_title", "quantity")
 
 
@@ -193,7 +189,6 @@ class SupplyListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Supply
-        # fields = ("id", "supplier", "supplier_title", "delivery_date", "products")
         fields = ("id", "supplier_title", "delivery_date", "products")
 
 
@@ -213,13 +208,13 @@ class ProductSaleCreateSerializer(serializers.ModelSerializer):
 
     def validate_quantity(self, quantity):
         if quantity <= 0:
-            raise serializers.ValidationError(f"Only {quantity} left in stock")
+            raise serializers.ValidationError(f"Quantity must be greater than 0")
 
         return quantity
 
 
 class SaleCreateSerializer(serializers.ModelSerializer):
-    product_sales = ProductSaleCreateSerializer(many=True, allow_null=False)
+    product_sales = ProductSaleCreateSerializer(many=True, allow_null=False, allow_empty=False)
 
     class Meta:
         model = Sale
@@ -258,15 +253,28 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             if product.quantity < quantity:
                 raise serializers.ValidationError(f"Not enough {product.title}. Only {product.quantity} left")
 
-        sale = Sale.objects.create(**validate_data)
+        sale = Sale.objects.create(company=user.company, **validate_data)
 
         for item in products_data:
             product = products_dict[item["product"].id]
             quantity = item["quantity"]
 
-            ProductSale.objects.create(sale=sale, product=product, quantity=quantity)
+            ProductSale.objects.create(sale=sale, product=product, quantity=quantity, sale_price=product.sale_price,
+                                       purchase_price=product.purchase_price)
 
             product.quantity -= quantity
             product.save(update_fields=["quantity"])
 
         return sale
+
+
+class SaleListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Sale
+        fields = ("id", "buyer_name", "sale_date")
+
+
+class SaleUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Sale
+        fields = ("buyer_name", "sale_date")

@@ -98,6 +98,10 @@ class Product(models.Model):
     class Meta:
         verbose_name = "Product"
         verbose_name_plural = "Products"
+        # Здесь
+        constraints = [
+            models.CheckConstraint(condition=Q(purchase_price__gt=0), name="product_purchase_price_gt_zero"),
+            models.CheckConstraint(condition=Q(sale_price__gt=0), name="product_sale_price_gt_zero")]
 
     def __str__(self):
         return f"{self.title} - purchase prise {self.purchase_price}"
@@ -142,9 +146,19 @@ class ProductSale(models.Model):
     sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="product_sales")
     quantity = models.PositiveIntegerField()
 
+    # Здесь
+    sale_price = models.DecimalField(max_digits=8, decimal_places=2)
+    purchase_price = models.DecimalField(max_digits=8, decimal_places=2)
+
     class Meta:
         verbose_name = "Product sale"
         verbose_name_plural = "Product sales"
+
+        # Здесь
+        constraints = [models.CheckConstraint(condition=Q(quantity__gt=0), name="product_sale_quantity_gt_zero"),
+                       models.CheckConstraint(condition=Q(sale_price__gt=0), name="product_sale_sale_price_gt_zero"),
+                       models.CheckConstraint(condition=Q(purchase_price__gt=0),
+                                              name="product_sale_purchase_price_gt_zero")]
 
     def __str__(self):
         return f"Product {self.product.title}, quantity {self.quantity}"
@@ -179,7 +193,3 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
-
-
-
-
