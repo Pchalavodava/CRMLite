@@ -3,7 +3,7 @@ from .views import CreateUserView, DeleteUserView, GetUserView, LoginView, Logou
     DeleteCompanyView, GetCompanyView, UpdateCompanyView, GetStorageView, CreateStorageView, UpdateStorageView, \
     DeleteStorageView, CreateSupplierView, GetSuppliersView, UpdateSupplierView, DeleteSupplierView, GetProductListView, \
     GetProductView, UpdateProductView, DeleteProductView, CreateProductView, CreateSupplyView, SupplyListView, \
-    AttachUserToCompanyView
+    AttachUserToCompanyView, CreateSaleView
 
 urlpatterns = [
     path("create/", CreateUserView.as_view(), name="create-user"),
@@ -37,6 +37,9 @@ urlpatterns = [
     # ___________________________Supply_______________________________
     path("supplies/", SupplyListView.as_view(), name="supplies-list"),
     path("supplies/create/", CreateSupplyView.as_view(), name="create-supply"),
+
+    # ______________________________Sale_________________________________
+    path("sales/create/", CreateSaleView.as_view(), name="create-sale"),
 
     path('login/', LoginView.as_view(), name='token_obtain_pair'),
     path('refresh/', RefreshView.as_view(), name='token_refresh'),

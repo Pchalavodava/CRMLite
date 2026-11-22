@@ -122,6 +122,34 @@ class SupplyProduct(models.Model):
         return f"Product {self.product} - quantity {self.quantity}"
 
 
+# _______________________________Sale_______________________________
+class Sale(models.Model):
+    buyer_name = models.CharField(verbose_name="Buyer name", max_length=50)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="company_sales")
+    sale_date = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "Sale"
+        verbose_name_plural = "Sales"
+
+    def __str__(self):
+        return f"Date {self.sale_date}, buyer - {self.buyer_name}"
+
+
+# _______________________________ProductSale_______________________________
+class ProductSale(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="product_sales")
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="product_sales")
+    quantity = models.PositiveIntegerField()
+
+    class Meta:
+        verbose_name = "Product sale"
+        verbose_name_plural = "Product sales"
+
+    def __str__(self):
+        return f"Product {self.product.title}, quantity {self.quantity}"
+
+
 # ____________________User_____________________
 
 class User(AbstractUser):
@@ -151,3 +179,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+
+

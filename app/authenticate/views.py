@@ -2,6 +2,7 @@ import datetime
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import ProtectedError
 from django.shortcuts import render
 from drf_spectacular.utils import extend_schema, OpenApiRequest
 from rest_framework import status
@@ -15,7 +16,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import UserSerializer, CompanyCreateSerializer, CompanySerializer, StorageSerializer, \
     SupplierCreateSerializer, SupplierSerializer, ProductSerializer, SupplySerializer, SupplyListSerializer, \
-    AttachUserToCompanySerializer
+    AttachUserToCompanySerializer, SaleCreateSerializer
 from rest_framework.permissions import IsAuthenticated
 from .permissions import HasCompanyPermission
 from .models import Company, Storage, Supplier, Product, Supply
@@ -400,7 +401,11 @@ class DeleteSupplierView(APIView):
     def delete(self, request, id):
         supplier = get_object_or_404(Supplier, pk=id, company_id=request.user.company_id)
 
-        supplier.delete()
+        try:
+            supplier.delete()
+        except ProtectedError:
+            return Response({"detail": "You can't delete supplier, who participates in the supply"},
+                            status=status.HTTP_409_CONFLICT)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -493,7 +498,11 @@ class DeleteProductView(APIView):
     def delete(self, request, id):
         product = get_object_or_404(Product, pk=id, storage__company_id=request.user.company_id)
 
-        product.delete()
+        try:
+            product.delete()
+        except ProtectedError:
+            return Response({"detail": "You can't delete the product, which used in supplies"},
+                            status=status.HTTP_409_CONFLICT)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -536,3 +545,25 @@ class SupplyListView(APIView):
         serializer = SupplyListSerializer(supplies, many=True)
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ______________________________Sale___________________________________
+@extend_schema(
+    summary="Create sale",
+    description="Create sale",
+    tags=["Sales"],
+    request=SaleCreateSerializer,
+    responses={201: SaleCreateSerializer}
+)
+class CreateSaleView(APIView):
+    permission_classes = [IsAuthenticated, HasCompanyPermission]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = SaleCreateSerializer(data=request.data, context={"request": request})
+
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(company=request.user.company)
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import User, Company, Storage, Supplier, Supply, Product, SupplyProduct
+from .models import User, Company, Storage, Supplier, Supply, Product, SupplyProduct, Sale, ProductSale
 
 
 # ______________________Company___________________________
@@ -51,6 +51,22 @@ class ProductAdmin(admin.ModelAdmin):
     list_filter = ('title',)
     search_fields = ('title', 'storage_id')
     readonly_fields = ('quantity',)
+
+
+# _________________________ProductSale_______________________
+class ProductSaleInLine(admin.TabularInline):
+    model = ProductSale
+    extra = 1
+    autocomplete_fields = ('product',)
+
+
+# _______________________Sale______________________________
+@admin.register(Sale)
+class SaleAdmin(admin.ModelAdmin):
+    list_display = ('id', 'buyer_name', 'company', 'sale_date')
+    list_filter = ('sale_date',)
+    inlines = (ProductSaleInLine,)
+
 
 # __________________________User___________________________
 
